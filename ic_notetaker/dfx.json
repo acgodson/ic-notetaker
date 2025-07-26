@@ -1,0 +1,17 @@
+{
+  "canisters": {
+    "ic_notetaker_backend": {
+      "candid": "src/ic_notetaker_backend/ic_notetaker_backend.did",
+      "package": "ic_notetaker_backend",
+      "type": "rust"
+    }
+  },
+  "defaults": {
+    "build": {
+      "args": "",
+      "packtool": ""
+    }
+  },
+  "output_env_file": ".env",
+  "version": 1
+}

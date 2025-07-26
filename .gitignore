@@ -1,0 +1,8 @@
+node_modules/
+
+# Firebase configuration files
+.firebaserc
+firebase.json
+
+# Test scripts
+test_proxy.sh

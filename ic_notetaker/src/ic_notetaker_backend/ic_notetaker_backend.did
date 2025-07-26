@@ -1,0 +1,70 @@
+type AddAudioRequest = record {
+  audio_data : blob;
+  meeting_id : text;
+  timestamp : opt nat64;
+};
+type AddAudioResponse = record {
+  status : text;
+  queue_size : nat32;
+  chunk_id : text;
+};
+type EndMeetingRequest = record { meeting_id : text };
+type EndMeetingResponse = record {
+  status : text;
+  meeting_id : text;
+  summary : opt text;
+  total_segments : nat32;
+};
+type HttpHeader = record { value : text; name : text };
+type HttpResponse = record {
+  status : nat;
+  body : blob;
+  headers : vec HttpHeader;
+};
+type Meeting = record {
+  transcript_segments : vec TranscriptSegment;
+  status : MeetingStatus;
+  title : opt text;
+  meeting_id : text;
+  owner : principal;
+  created_at : nat64;
+  summary : opt text;
+  last_activity : nat64;
+  ended_at : opt nat64;
+};
+type MeetingStatus = variant { Ended; Active; AutoEnded };
+type MeetingSummary = record {
+  status : MeetingStatus;
+  title : opt text;
+  meeting_id : text;
+  created_at : nat64;
+  has_summary : bool;
+  ended_at : opt nat64;
+  segment_count : nat32;
+};
+type Result = variant { Ok : AddAudioResponse; Err : text };
+type Result_1 = variant { Ok : EndMeetingResponse; Err : text };
+type Result_2 = variant { Ok : Meeting; Err : text };
+type Result_3 = variant { Ok : StartMeetingResponse; Err : text };
+type StartMeetingRequest = record { title : opt text };
+type StartMeetingResponse = record { status : text; meeting_id : text };
+type TranscriptSegment = record {
+  "text" : text;
+  chunk_id : text;
+  timestamp : nat64;
+  confidence : opt float32;
+};
+type TransformArgs = record { context : blob; response : HttpResponse };
+service : {
+  add_audio : (AddAudioRequest) -> (Result);
+  cleanup_old_data : () -> (text);
+  end_meeting : (EndMeetingRequest) -> (Result_1);
+  get_meeting : (text) -> (Result_2) query;
+  get_meetings : (opt nat32, opt nat32) -> (vec MeetingSummary) query;
+  get_queue_stats : () -> (nat64, nat64, nat64) query;
+  get_storage_stats : () -> (nat64, nat64) query;
+  health_check : () -> (vec record { text; text }) query;
+  periodic_maintenance : () -> (text);
+  start_meeting : (StartMeetingRequest) -> (Result_3);
+  transform_openai_response : (TransformArgs) -> (HttpResponse) query;
+}
