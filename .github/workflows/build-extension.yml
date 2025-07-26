@@ -37,11 +37,11 @@ jobs:
           git checkout HEAD -- ic_notetaker/src/extension/package.json
 
           if [ "$CURRENT_VERSION" != "$PREVIOUS_VERSION" ]; then
-            echo "changed=true" >> $GITHUB_OUTPUT
-            echo "version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "version=$CURRENT_VERSION" >> "$GITHUB_OUTPUT"
           else
-            echo "changed=false" >> $GITHUB_OUTPUT
-            echo "version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "version=$CURRENT_VERSION" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Debug check-version outputs
@@ -146,10 +146,10 @@ jobs:
           asset_name: ic-notetaker-extension-v${{ needs.check-version.outputs.new-version }}.zip
           asset_content_type: application/zip
 
-      - name: Upload extension source zip
+      - name: Create extension source zip
         run: |
           cd ic_notetaker/src/extension/dist
-          zip -r ../../extension-source.zip .
+          zip -r ../extension-source.zip .
 
       - name: Upload zipped extension source
         uses: actions/upload-release-asset@v1
