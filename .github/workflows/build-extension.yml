@@ -10,6 +10,9 @@ on:
       - "ic_notetaker/dfx.json"
       - "ic_notetaker/package.json"
 
+permissions:
+  contents: write
+
 jobs:
   check-version:
     runs-on: ubuntu-latest
