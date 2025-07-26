@@ -1,6 +1,6 @@
 {
   "name": "ic-notetaker-extension",
-  "version": "0.0.42",
+  "version": "0.0.43",
   "description": "Chrome extension for capturing and transcribing meetings on the Internet Computer",
   "type": "module",
   "scripts": {

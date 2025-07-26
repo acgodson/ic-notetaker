@@ -142,8 +142,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ic_notetaker/src/extension/ic-notetaker-extension.zip
-          asset_name: ic-notetaker-extension.zip
+          asset_path: ic_notetaker/src/extension/releases/ic-notetaker-extension-v${{ needs.check-version.outputs.new-version }}.zip
+          asset_name: ic-notetaker-extension-v${{ needs.check-version.outputs.new-version }}.zip
           asset_content_type: application/zip
 
       - name: Upload extension source zip
