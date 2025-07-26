@@ -1,0 +1,27 @@
+{
+  "name": "ic-notetaker-extension",
+  "version": "0.0.1",
+  "description": "Chrome extension for capturing and transcribing meetings on the Internet Computer",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --mode development",
+    "build": "vite build --mode production",
+    "build:extension": "vite build --mode extension && vite build --config vite.content.config.ts",
+    "preview": "vite preview",
+    "package": "npm run build:extension && node scripts/package-extension.js",
+    "release": "npm run package && node scripts/create-release.js"
+  },
+  "keywords": [
+    "chrome-extension",
+    "meeting-notes",
+    "transcription",
+    "internet-computer",
+    "icp",
+    "ai"
+  ],
+  "author": "godson",
+  "license": "MIT",
+  "dependencies": {
+    "zustand": "^5.0.6"
+  }
+}

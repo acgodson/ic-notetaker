@@ -3,3 +3,10 @@ members = [
     "src/ic_notetaker_backend"
 ]
 resolver = "2"
+
+[profile.release]
+opt-level = 3
+lto = true
+panic = "abort"
+strip = true
+codegen-units = 1

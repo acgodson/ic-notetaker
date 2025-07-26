@@ -1,4 +1,3 @@
-use ic_cdk::spawn;
 use crate::external::OpenAIClient;
 use crate::storage::Storage;
 use crate::types::*;

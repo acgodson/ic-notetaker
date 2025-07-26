@@ -6,8 +6,8 @@ use ic_cdk_macros::query;
 use base64::prelude::*;
 
 use crate::types::{
-    NotetakerError, NotetakerResult, OpenAIChatRequest, OpenAIChatResponse, OpenAIMessage,
-    OpenAITranscriptionRequest, OpenAITranscriptionResponse, TranscriptSegment,
+    NotetakerError, NotetakerResult, OpenAIChatResponse,
+    OpenAITranscriptionResponse, TranscriptSegment,
 };
 use crate::config::{
     OPENAI_PROXY_BASE_URL, 
@@ -49,7 +49,7 @@ impl OpenAIClient {
         let idempotency_key = Self::generate_idempotency_key(&audio_data);
 
         // Create request with endpoint indicator for Firebase proxy
-        let mut request_body = serde_json::json!({
+        let request_body = serde_json::json!({
             "endpoint": "/v1/audio/transcriptions",
             "file": base64_audio,
             "model": model.to_string(),

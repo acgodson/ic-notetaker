@@ -1,0 +1,182 @@
+name: Build and Release Chrome Extension
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "ic_notetaker/src/extension/package.json"
+      - "ic_notetaker/src/extension/src/**"
+      - "ic_notetaker/dfx.json"
+      - "ic_notetaker/package.json"
+
+jobs:
+  check-version:
+    runs-on: ubuntu-latest
+    outputs:
+      version-changed: ${{ steps.check.outputs.changed }}
+      new-version: ${{ steps.check.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Check if version changed
+        id: check
+        run: |
+          CURRENT_VERSION=$(jq -r '.version' ic_notetaker/src/extension/package.json)
+          echo "Current version: $CURRENT_VERSION"
+
+          git checkout HEAD~1 -- ic_notetaker/src/extension/package.json 2>/dev/null || true
+          PREVIOUS_VERSION=$(jq -r '.version' ic_notetaker/src/extension/package.json 2>/dev/null || echo "0.0.0")
+          echo "Previous version: $PREVIOUS_VERSION"
+
+          git checkout HEAD -- ic_notetaker/src/extension/package.json
+
+          if [ "$CURRENT_VERSION" != "$PREVIOUS_VERSION" ]; then
+            echo "changed=true" >> $GITHUB_OUTPUT
+            echo "version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+          else
+            echo "changed=false" >> $GITHUB_OUTPUT
+            echo "version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+          fi
+
+  build-and-release:
+    needs: check-version
+    if: needs.check-version.outputs.version-changed == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: 'ic_notetaker/**/package-lock.json'
+
+      - name: Install dfx
+        uses: dfinity/setup-dfx@main
+        with:
+          dfx-version: "0.15.1"
+
+      - name: Confirm dfx installation
+        run: dfx --version
+
+      - name: Install dependencies
+        run: |
+          cd ic_notetaker
+          npm install
+
+      - name: Prebuild steps
+        run: |
+          cd ic_notetaker
+          export DFX_NETWORK=ic
+          npm run canisters:create:backend || echo "Canister creation skipped"
+          npm run cargo:build
+          npm run candid:extract
+          npm run candid:generate || echo "Candid generation skipped"
+          npm run types:generate
+
+      - name: Build Chrome extension
+        run: |
+          cd ic_notetaker
+          export DFX_NETWORK=ic
+          export VITE_MODE=production
+          npm run build:extension
+
+      - name: Verify build output
+        run: |
+          if [ ! -f ic_notetaker/src/extension/dist/manifest.json ]; then
+            echo "❌ manifest.json missing"
+            exit 1
+          fi
+          if [ ! -d ic_notetaker/src/extension/dist/assets ]; then
+            echo "❌ assets directory missing"
+            exit 1
+          fi
+
+      - name: Package extension
+        run: |
+          cd ic_notetaker/src/extension
+          npm run package
+
+      - name: Create installation instructions
+        run: |
+          cat > INSTALLATION.md <<EOF
+# IC Notetaker Extension Installation
+
+## Version ${{ needs.check-version.outputs.new-version }}
+
+### Installation Instructions
+
+  ##### 1. Download the zip file
+  ##### 2. Go to chrome://extensions
+  ###### 3. Enable developer mode
+  ###### 4. Load the extracted folder
+
+  # EOF
+
+      - name: Create GitHub Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: v${{ needs.check-version.outputs.new-version }}
+          release_name: IC Notetaker Extension v${{ needs.check-version.outputs.new-version }}
+          body: |
+            ## IC Notetaker Chrome Extension v${{ needs.check-version.outputs.new-version }}
+
+            Features:
+            - Meeting transcription
+            - Internet Identity auth
+            - AI-powered note generation
+
+            Built from commit: ${{ github.sha }}
+
+          draft: false
+          prerelease: false
+
+      - name: Upload extension zip
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ic_notetaker/src/extension/ic-notetaker-extension.zip
+          asset_name: ic-notetaker-extension.zip
+          asset_content_type: application/zip
+
+      - name: Upload installation instructions
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: INSTALLATION.md
+          asset_name: INSTALLATION.md
+          asset_content_type: text/markdown
+
+      - name: Upload extension source zip
+        run: |
+          cd ic_notetaker/src/extension/dist
+          zip -r ../../extension-source.zip .
+
+      - name: Upload zipped extension source
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ic_notetaker/src/extension/extension-source.zip
+          asset_name: extension-source.zip
+          asset_content_type: application/zip
+
+      - name: Cleanup
+        if: always()
+        run: |
+          rm -rf ic_notetaker/src/extension/dist
+          rm -f ic_notetaker/src/extension/ic-notetaker-extension.zip
+          rm -f ic_notetaker/src/extension/extension-source.zip
+          rm -f INSTALLATION.md
