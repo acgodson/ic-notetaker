@@ -4,7 +4,7 @@
     "npm": ">=7.0.0"
   },
   "name": "ic_notetaker",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "scripts": {
     "prebuild": "npm run canisters:create && npm run cargo:build && npm run candid:extract && npm run candid:generate && npm run types:generate",
     "build": "npm run build --workspaces --if-present",

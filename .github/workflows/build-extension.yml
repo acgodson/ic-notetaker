@@ -68,6 +68,9 @@ jobs:
       - name: Add wasm32 target
         run: rustup target add wasm32-unknown-unknown
 
+      - name: Install candid-extractor
+        run: cargo install candid-extractor
+
       - name: Confirm dfx installation
         run: dfx --version
 
