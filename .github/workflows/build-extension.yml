@@ -65,6 +65,9 @@ jobs:
         with:
           dfx-version: "0.15.1"
 
+      - name: Add wasm32 target
+        run: rustup target add wasm32-unknown-unknown
+
       - name: Confirm dfx installation
         run: dfx --version
 
