@@ -106,22 +106,6 @@ jobs:
           cd ic_notetaker/src/extension
           npm run package
 
-      - name: Create installation instructions
-        run: |
-          cat > INSTALLATION.md <<EOF
-# IC Notetaker Extension Installation
-
-## Version ${{ needs.check-version.outputs.new-version }}
-
-### Installation Instructions
-
-1. Download the zip file  
-2. Go to chrome://extensions  
-3. Enable developer mode  
-4. Load the extracted folder
-
-EOF
-
       - name: Create GitHub Release
         id: create_release
         uses: actions/create-release@v1
@@ -152,16 +136,6 @@ EOF
           asset_path: ic_notetaker/src/extension/ic-notetaker-extension.zip
           asset_name: ic-notetaker-extension.zip
           asset_content_type: application/zip
-
-      - name: Upload installation instructions
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: INSTALLATION.md
-          asset_name: INSTALLATION.md
-          asset_content_type: text/markdown
 
       - name: Upload extension source zip
         run: |
