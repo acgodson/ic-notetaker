@@ -41,9 +41,14 @@ jobs:
             echo "version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
           fi
 
+      - name: Debug check-version outputs
+        run: |
+          echo "version-changed=${{ steps.check.outputs.changed }}"
+          echo "new-version=${{ steps.check.outputs.version }}"
+
   build-and-release:
     needs: check-version
-    if: needs.check-version.outputs.version-changed == 'true'
+    if: ${{ needs.check-version.outputs.version-changed == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -110,12 +115,12 @@ jobs:
 
 ### Installation Instructions
 
-  ##### 1. Download the zip file
-  ##### 2. Go to chrome://extensions
-  ###### 3. Enable developer mode
-  ###### 4. Load the extracted folder
+1. Download the zip file  
+2. Go to chrome://extensions  
+3. Enable developer mode  
+4. Load the extracted folder
 
-  # EOF
+EOF
 
       - name: Create GitHub Release
         id: create_release
