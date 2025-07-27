@@ -1,14 +1,11 @@
 console.log('🔧 Background: Starting background script...');
 
 import browser from "webextension-polyfill";
-import { HttpAgent } from "@dfinity/agent";
-import { AuthClient } from "@dfinity/auth-client";
-import { Principal } from "@dfinity/principal";
 import {
   createActor as createICNotetakerActor,
   canisterId as icNotetakerCanisterId
 } from "../../../ic-types/index.js";
-import { ENV, shouldFetchRootKey, getICAgentOptions } from "../utils/env";
+import { ENV, getICAgentOptions } from "../utils/env";
 
 console.log('✅ Background: Imports loaded successfully');
 
@@ -17,10 +14,6 @@ type ICNotetakerActor = ReturnType<typeof createICNotetakerActor>;
 
 class ICNoteTakerAgent {
   private actor: ICNotetakerActor | null = null;
-  private agent: HttpAgent | null = null;
-  private authClient: AuthClient | null = null;
-  private isAuthenticated: boolean = false;
-  private principal: Principal | null = null;
   private keepAliveInterval: number | null = null;
 
   constructor() {
@@ -54,48 +47,9 @@ class ICNoteTakerAgent {
         CANISTER_ID_INTERNET_IDENTITY: ENV.CANISTER_ID_INTERNET_IDENTITY,
       });
 
-      // Initialize auth client - use options that work in service worker
-      console.log("IC Notetaker: Creating AuthClient...");
-      this.authClient = await AuthClient.create({
-        idleOptions: {
-          disableIdle: true
-        }
-      });
-      
-      console.log("IC Notetaker: Checking authentication status...");
-      const isAuthenticatedByClient = await this.authClient.isAuthenticated();
-      
-      if (isAuthenticatedByClient) {
-        const identity = this.authClient.getIdentity();
-        const principal = identity.getPrincipal();
-        
-        console.log('🔍 Background: Auth check on init:', {
-          isAuthenticatedByClient,
-          principal: principal.toString(),
-          isAnonymous: principal.isAnonymous()
-        });
-        
-        // Only consider truly authenticated if principal is NOT anonymous
-        if (!principal.isAnonymous()) {
-          console.log(
-            "IC Notetaker: User is authenticated, creating authenticated actor"
-          );
-          this.isAuthenticated = true;
-          await this.createAuthenticatedActor();
-        } else {
-          console.log(
-            "IC Notetaker: Principal is anonymous, creating anonymous actor"
-          );
-          this.isAuthenticated = false;
-          await this.createAnonymousActor();
-        }
-      } else {
-        console.log(
-          "IC Notetaker: User not authenticated, creating anonymous actor"
-        );
-        this.isAuthenticated = false;
-        await this.createAnonymousActor();
-      }
+      // Work with anonymous actor only
+      console.log("IC Notetaker: Creating anonymous actor...");
+      await this.createAnonymousActor();
 
       console.log("IC Notetaker: Connected to canister successfully");
 
@@ -106,36 +60,6 @@ class ICNoteTakerAgent {
     }
   }
 
-  private async createAuthenticatedActor() {
-    if (!this.authClient || !this.isAuthenticated) {
-      throw new Error("Auth client not initialized or not authenticated");
-    }
-
-    const identity = this.authClient.getIdentity();
-    this.principal = identity.getPrincipal();
-
-    // Create HTTP agent with identity
-    this.agent = new HttpAgent({
-      identity,
-      ...getICAgentOptions(),
-    });
-
-    // Only fetch root key in development/local
-    if (shouldFetchRootKey()) {
-      console.log("IC Notetaker: Fetching root key for local development");
-      await this.agent.fetchRootKey();
-    }
-
-    // Create authenticated actor using generated function
-    this.actor = createICNotetakerActor(icNotetakerCanisterId || ENV.CANISTER_ID_IC_NOTETAKER_BACKEND, {
-      agent: this.agent,
-    });
-
-    console.log(
-      "IC Notetaker: Authenticated actor created for principal:",
-      this.principal.toString()
-    );
-  }
 
   private async createAnonymousActor() {
     // Create anonymous actor using generated function
@@ -162,70 +86,6 @@ class ICNoteTakerAgent {
     }
   }
 
-  // Method to authenticate user
-  private async authenticate() {
-    if (!this.authClient) {
-      throw new Error("Auth client not initialized");
-    }
-
-    console.log('🔍 Background: Configuring authentication...');
-    const identityProvider = ENV.IS_LOCAL
-      ? `http://${ENV.CANISTER_ID_INTERNET_IDENTITY}.localhost:4943`
-      : "https://identity.ic0.app";
-    
-    console.log('🔍 Background: Identity provider:', identityProvider);
-
-    return new Promise<void>((resolve, reject) => {
-      try {
-        this.authClient!.login({
-          identityProvider,
-          maxTimeToLive: BigInt(8 * 60 * 60 * 1000 * 1000 * 1000), // 8 hours
-          onSuccess: async () => {
-            try {
-              console.log("✅ Background: Authentication callback - success");
-              this.isAuthenticated = true;
-              await this.createAuthenticatedActor();
-              console.log("✅ Background: Authentication complete");
-              resolve();
-            } catch (error) {
-              console.error(
-                "❌ Background: Failed to create authenticated actor:",
-                error
-              );
-              reject(error);
-            }
-          },
-          onError: (error) => {
-            console.error("❌ Background: Authentication failed:", error);
-            reject(error);
-          },
-        });
-      } catch (error) {
-        console.error("❌ Background: Error starting login:", error);
-        reject(error);
-      }
-    });
-  }
-
-  // Method to logout user
-  private async logout() {
-    if (!this.authClient) {
-      throw new Error("Auth client not initialized");
-    }
-
-    try {
-      await this.authClient.logout();
-      this.isAuthenticated = false;
-      this.principal = null;
-      await this.createAnonymousActor();
-      console.log(
-        "IC Notetaker: Logout successful, switched to anonymous actor"
-      );
-    } catch (error) {
-      console.error("IC Notetaker: Logout failed:", error);
-      throw error;
-    }
-  }
 
   private setupMessageListener() {
     console.log('🔧 Background: Setting up message listener...');
@@ -247,17 +107,8 @@ class ICNoteTakerAgent {
             return this.endMeeting(message.data);
           case "HEALTH_CHECK":
             return this.healthCheck();
-          case "AUTHENTICATE":
-            return this.authenticate();
-          case "LOGIN":
-            return this.handleLogin();
-          case "OPEN_AUTH_TAB":
-            return this.openAuthTab();
-          case "LOGOUT":
-            return this.logout();
-          case "GET_AUTH_STATUS":
-          case "CHECK_AUTH_STATUS":
-            return this.getAuthStatus();
+          case "GET_MEETINGS":
+            return this.getMeetings(message.data);
           default:
             console.log('🔍 Background: Unknown action:', message?.action);
             return Promise.resolve({ error: `Unknown action: ${message?.action}` });
@@ -285,86 +136,6 @@ class ICNoteTakerAgent {
     });
   }
 
-  private async getAuthStatus(): Promise<{
-    isAuthenticated: boolean;
-    principalText?: string;
-  }> {
-    try {
-      console.log('🔍 Background: Getting auth status...');
-      
-      // Double-check authentication status
-      if (this.authClient && this.principal) {
-        const isAuth = await this.authClient.isAuthenticated();
-        const isAnonymous = this.principal.isAnonymous();
-        
-        console.log('🔍 Background: Auth status check:', {
-          authClientAuth: isAuth,
-          isAnonymous,
-          storedAuth: this.isAuthenticated,
-          principal: this.principal.toString()
-        });
-        
-        // Only consider authenticated if not anonymous
-        const actuallyAuthenticated = isAuth && !isAnonymous;
-        
-        return {
-          isAuthenticated: actuallyAuthenticated,
-          principalText: actuallyAuthenticated ? this.principal.toString() : undefined,
-        };
-      }
-      
-      console.log('🔍 Background: No auth client or principal available');
-      return {
-        isAuthenticated: false,
-        principalText: undefined,
-      };
-    } catch (error) {
-      console.error('❌ Background: Error getting auth status:', error);
-      return {
-        isAuthenticated: false,
-        principalText: undefined,
-      };
-    }
-  }
-
-  private async handleLogin(): Promise<{ success: boolean; error?: string }> {
-    try {
-      console.log('🔍 Background: Handling login request...');
-      
-      // The issue is that AuthClient.login() tries to open a popup which doesn't work
-      // in service workers. We need to create a different approach.
-      // For now, let's try to create the auth client without the login call
-      
-      if (!this.authClient) {
-        console.log('🔍 Background: Creating auth client...');
-        this.authClient = await AuthClient.create({
-          idleOptions: {
-            disableIdle: true
-          }
-        });
-      }
-      
-      console.log('🔍 Background: Auth client created, but login popup not supported in service worker');
-      
-      // For Chrome extensions, we need to either:
-      // 1. Use chrome.identity API, or
-      // 2. Open authentication in a popup/tab and handle the callback
-      // 3. Use a different authentication flow
-      
-      // For now, let's return an error asking user to use the popup
-      return { 
-        success: false, 
-        error: 'Please use the extension popup to authenticate. Service worker cannot open popup windows.' 
-      };
-      
-    } catch (error) {
-      console.error('❌ Background: Login failed:', error);
-      return { 
-        success: false, 
-        error: error instanceof Error ? error.message : 'Login failed' 
-      };
-    }
-  }
 
   private async createMeeting(data: {
     title: string;
@@ -376,7 +147,7 @@ class ICNoteTakerAgent {
       }
 
       const request = {
-        title: data.title ? ([data.title] as [string]) : ([] as []),
+        title: data.title ? [data.title] : [],
       };
 
       const response = await this.actor.start_meeting(request) as 
@@ -409,7 +180,7 @@ class ICNoteTakerAgent {
 
       const request = {
         meeting_id: data.meetingId,
-        audio_data: data.audioData,
+        audio_data: new Uint8Array(data.audioData), // Convert number[] to Uint8Array
         timestamp: data.timestamp
           ? ([BigInt(data.timestamp * 1_000_000)] as [bigint])
           : ([] as []), 
@@ -479,201 +250,39 @@ class ICNoteTakerAgent {
     }
   }
 
-  private async openAuthTab(): Promise<{ success: boolean; error?: string; tabId?: number }> {
+  private async getMeetings(data: { offset?: number; limit?: number }): Promise<any> {
     try {
-      console.log('🔍 Background: Starting Internet Identity authentication...');
-      
-      if (!this.authClient) {
-        console.log('🔍 Background: Creating auth client...');
-        this.authClient = await AuthClient.create({
-          idleOptions: {
-            disableIdle: true
-          }
-        });
+      if (!this.actor) {
+        throw new Error("IC agent not initialized");
       }
 
-      const identityProvider = ENV.IS_LOCAL
-        ? `http://${ENV.CANISTER_ID_INTERNET_IDENTITY}.localhost:4943`
-        : "https://identity.ic0.app";
+      const offset = data?.offset || 0;
+      const limit = data?.limit || 50;
+
+      const response = await this.actor.get_meetings([offset], [limit]);
+      console.log("IC Notetaker: Got meetings:", response);
       
-      console.log('🔍 Background: Using identity provider:', identityProvider);
+      // Convert BigInt values to strings and clean up structure for serialization
+      const cleanedMeetings = (response as any[]).map((meeting: any) => ({
+        meeting_id: meeting.meeting_id,
+        title: Array.isArray(meeting.title) && meeting.title.length > 0 ? meeting.title[0] : null,
+        status: meeting.status.Active ? 'Active' : meeting.status.Ended ? 'Ended' : 'Failed',
+        created_at: meeting.created_at.toString(),
+        ended_at: Array.isArray(meeting.ended_at) && meeting.ended_at.length > 0 ? meeting.ended_at[0].toString() : null,
+        segment_count: meeting.segment_count,
+        has_summary: meeting.has_summary
+      }));
       
-      // Create a proper auth URL with application context
-      // This tells II that we want to authenticate for a specific app
-      const appUrl = browser.runtime.getURL('');
-      const authUrl = `${identityProvider}/?applicationName=IC%20Notetaker&applicationLogo=${encodeURIComponent(browser.runtime.getURL('icons/icon-48.png'))}&`; 
-      
-      console.log('🔍 Background: Opening auth URL:', authUrl);
-      
-      // Open the auth tab
-      const tab = await browser.tabs.create({
-        url: authUrl,
-        active: true
-      });
-      
-      if (tab.id) {
-        console.log('✅ Background: Auth tab opened with ID:', tab.id);
-        
-        // Set up monitoring for the authentication process
-        this.setupAuthTabMonitoring(tab.id);
-        
-        return {
-          success: true,
-          tabId: tab.id
-        };
-      } else {
-        throw new Error('Failed to create tab');
-      }
-      
+      return cleanedMeetings;
     } catch (error) {
-      console.error('❌ Background: Failed to open auth tab:', error);
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to open authentication tab'
-      };
+      console.error("IC Notetaker: Failed to get meetings:", error);
+      throw error;
     }
   }
 
-  private setupAuthTabMonitoring(tabId: number): void {
-    console.log('🔍 Background: Setting up auth tab monitoring...');
-    
-    const checkAuthStatus = async () => {
-      try {
-        if (this.authClient) {
-          const isAuth = await this.authClient.isAuthenticated();
-          if (isAuth) {
-            const identity = this.authClient.getIdentity();
-            const principal = identity.getPrincipal();
-            
-            if (!principal.isAnonymous()) {
-              console.log('✅ Background: Authentication detected!', principal.toString());
-              this.isAuthenticated = true;
-              await this.createAuthenticatedActor();
-              
-              // Close the auth tab
-              try {
-                await browser.tabs.remove(tabId);
-              } catch (e) {
-                console.warn('⚠️ Background: Could not close auth tab:', e);
-              }
-              
-              return true; // Auth complete
-            }
-          }
-        }
-        return false; // Auth not complete
-      } catch (error) {
-        console.warn('⚠️ Background: Auth status check failed:', error);
-        return false;
-      }
-    };
 
-    // Poll for authentication every 2 seconds
-    const pollInterval = setInterval(async () => {
-      const authComplete = await checkAuthStatus();
-      if (authComplete) {
-        clearInterval(pollInterval);
-        console.log('✅ Background: Auth monitoring stopped - authentication complete');
-      }
-    }, 2000);
 
-    // Stop polling after 10 minutes
-    setTimeout(() => {
-      clearInterval(pollInterval);
-      console.log('⏱️ Background: Auth monitoring stopped - timeout');
-    }, 600000);
 
-    // Also monitor tab closure
-    const handleTabRemoved = (removedTabId: number) => {
-      if (removedTabId === tabId) {
-        clearInterval(pollInterval);
-        browser.tabs.onRemoved.removeListener(handleTabRemoved);
-        console.log('🔍 Background: Auth tab closed by user');
-      }
-    };
-
-    browser.tabs.onRemoved.addListener(handleTabRemoved);
-  }
-
-  private setupAuthCompletionListener(): void {
-    console.log('🔍 Background: Setting up auth completion listener...');
-    
-    const handleAuthComplete = (message: any, sender: any) => {
-      if (message?.action === 'AUTH_COMPLETE') {
-        console.log('✅ Background: Received auth completion message:', message.data);
-        
-        if (message.data?.success) {
-          // Re-initialize the agent to pick up the new authentication
-          this.initAgent().then(() => {
-            console.log('✅ Background: Agent re-initialized after auth completion');
-          }).catch(error => {
-            console.error('❌ Background: Failed to re-initialize agent:', error);
-          });
-        }
-        
-        // Remove the listener to avoid duplicates
-        browser.runtime.onMessage.removeListener(handleAuthComplete);
-      }
-    };
-    
-    // Add the listener
-    browser.runtime.onMessage.addListener(handleAuthComplete);
-    
-    // Auto-cleanup after 10 minutes
-    setTimeout(() => {
-      browser.runtime.onMessage.removeListener(handleAuthComplete);
-      console.log('🔍 Background: Auth completion listener cleaned up after timeout');
-    }, 600000);
-  }
-
-  private setupAuthTabListener(tabId: number): void {
-    console.log('🔍 Background: Setting up auth tab listener for tab:', tabId);
-    
-    const handleTabUpdate = async (updatedTabId: number, changeInfo: any, tab: any) => {
-      // Only listen for updates to our auth tab
-      if (updatedTabId !== tabId) return;
-      
-      // Check if the tab has been updated
-      if (changeInfo.status === 'complete' && tab.url) {
-        console.log('🔍 Background: Auth tab updated:', tab.url);
-        
-        // If user completed authentication on II, redirect to our callback page
-        if ((tab.url.includes('identity.ic0.app') || tab.url.includes('.localhost:4943')) && 
-            !tab.url.includes('auth-callback.html')) {
-          
-          // Check if the URL indicates successful authentication
-          // II typically redirects back with fragments or parameters
-          if (tab.url.includes('#') || tab.url.includes('authenticated')) {
-            console.log('🔍 Background: Detected potential auth completion, redirecting to callback...');
-            
-            // Redirect to our callback page
-            const callbackUrl = browser.runtime.getURL('auth-callback.html');
-            await browser.tabs.update(tabId, { url: callbackUrl });
-          }
-        }
-      }
-    };
-    
-    const handleTabRemoved = (removedTabId: number) => {
-      if (removedTabId === tabId) {
-        console.log('🔍 Background: Auth tab closed:', removedTabId);
-        // Clean up listeners
-        browser.tabs.onUpdated.removeListener(handleTabUpdate);
-        browser.tabs.onRemoved.removeListener(handleTabRemoved);
-      }
-    };
-    
-    // Add listeners
-    browser.tabs.onUpdated.addListener(handleTabUpdate);
-    browser.tabs.onRemoved.addListener(handleTabRemoved);
-    
-    // Auto-cleanup after 10 minutes
-    setTimeout(() => {
-      browser.tabs.onUpdated.removeListener(handleTabUpdate);
-      browser.tabs.onRemoved.removeListener(handleTabRemoved);
-      console.log('🔍 Background: Auth tab listeners cleaned up after timeout');
-    }, 600000);
-  }
 }
 
 // Initialize the IC Notetaker agent with error handling

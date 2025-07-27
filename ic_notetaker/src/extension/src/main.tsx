@@ -1,6 +1,6 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
-import { BrowserRouter } from 'react-router-dom'
+import { BrowserRouter, MemoryRouter } from 'react-router-dom'
 import App from './App'
 import './index.css'
 
@@ -9,13 +9,21 @@ const isExtension = typeof chrome !== 'undefined' && chrome.runtime && chrome.ru
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <BrowserRouter future={{
-      v7_startTransition: true,
-      v7_relativeSplatPath: true
-    }}>
-      <div className={isExtension ? 'extension-mode' : 'web-mode'}>
-        <App />
-      </div>
-    </BrowserRouter>
+    {isExtension ? (
+      <MemoryRouter initialEntries={['/']} initialIndex={0}>
+        <div className="extension-mode">
+          <App />
+        </div>
+      </MemoryRouter>
+    ) : (
+      <BrowserRouter future={{
+        v7_startTransition: true,
+        v7_relativeSplatPath: true
+      }}>
+        <div className="web-mode">
+          <App />
+        </div>
+      </BrowserRouter>
+    )}
   </React.StrictMode>,
 )

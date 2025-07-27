@@ -42,7 +42,7 @@ interface EndMeetingResponse {
 interface Meeting {
   meeting_id: string;
   owner: Principal;
-  title: string;
+  title?: string;
   status: { Active?: null; Ended?: null; AutoEnded?: null };
   created_at: bigint;
   ended_at?: bigint;
@@ -106,7 +106,7 @@ const idlFactory = ({ IDL }: any) => {
   const Meeting = IDL.Record({
     meeting_id: MeetingId,
     owner: IDL.Principal,
-    title: IDL.Text,
+    title: IDL.Opt(IDL.Text),
     status: MeetingStatus,
     created_at: IDL.Nat64,
     ended_at: IDL.Opt(IDL.Nat64),
@@ -164,7 +164,7 @@ class NotetakerTest {
     this.actor = Actor.createActor(idlFactory, {
       agent: this.agent,
       canisterId: Principal.fromText(
-        process.env.CANISTER_ID || "rdmx6-jaaaa-aaaaa-aaadq-cai"
+        process.env.CANISTER_ID_IC_NOTETAKER_BACKEND || "rdmx6-jaaaa-aaaaa-aaadq-cai"
       ),
     });
 
@@ -293,7 +293,7 @@ class NotetakerTest {
       if ("Ok" in result && result.Ok) {
         const meeting = result.Ok;
         console.log(`✅ Meeting retrieved: ${meeting.meeting_id}`);
-        console.log(`   Title: ${meeting.title}`);
+        console.log(`   Title: ${meeting.title || 'Untitled'}`);
         console.log(`   Status: ${Object.keys(meeting.status)[0]}`);
         console.log(`   Transcript segments: ${meeting.transcript_segments.length}`);
         

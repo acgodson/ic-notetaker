@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { 
   ArrowLeft, 
@@ -8,60 +8,57 @@ import {
   Search, 
   Filter,
   Download,
-  ExternalLink
+  ExternalLink,
+  Loader
 } from 'lucide-react'
 
 interface Meeting {
-  id: string
-  title: string
-  platform: string
-  date: string
-  duration: number
-  status: 'completed' | 'recording' | 'failed'
-  transcriptSegments: number
-  summary?: string
+  meeting_id: string
+  title: string | null
+  status: 'Active' | 'Ended' | 'Failed'
+  created_at: number
+  ended_at: number | null
+  segment_count: number
+  has_summary: boolean
 }
 
 const MeetingHistory: React.FC = () => {
+  const [meetings, setMeetings] = useState<Meeting[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
-  const [filter, setFilter] = useState<'all' | 'completed' | 'recording' | 'failed'>('all')
+  const [filter, setFilter] = useState<'all' | 'Active' | 'Ended' | 'Failed'>('all')
 
-  // Mock data - in real app this would come from IC canister
-  const meetings: Meeting[] = [
-    {
-      id: 'meeting_1',
-      title: 'Weekly Team Standup',
-      platform: 'Google Meet',
-      date: '2024-01-26T10:00:00Z',
-      duration: 1800, // 30 minutes in seconds
-      status: 'completed',
-      transcriptSegments: 45,
-      summary: 'Discussed project milestones, sprint planning, and upcoming deadlines. Team reported good progress on current tasks.'
-    },
-    {
-      id: 'meeting_2', 
-      title: 'Client Presentation',
-      platform: 'Zoom',
-      date: '2024-01-25T14:30:00Z',
-      duration: 3600, // 1 hour
-      status: 'completed',
-      transcriptSegments: 89,
-      summary: 'Presented Q4 results to client. Positive feedback received. Discussed expansion plans for next quarter.'
-    },
-    {
-      id: 'meeting_3',
-      title: 'Product Review Meeting',
-      platform: 'Microsoft Teams',
-      date: '2024-01-24T09:00:00Z',
-      duration: 2700, // 45 minutes
-      status: 'completed',
-      transcriptSegments: 67
+  // Fetch meetings from IC canister
+  useEffect(() => {
+    const fetchMeetings = async () => {
+      try {
+        setLoading(true)
+        const response = await chrome.runtime.sendMessage({
+          action: 'GET_MEETINGS',
+          data: { offset: 0, limit: 50 }
+        })
+        
+        if (response.error) {
+          setError(response.error)
+        } else {
+          setMeetings(response || [])
+        }
+      } catch (err) {
+        setError('Failed to fetch meetings')
+        console.error('Error fetching meetings:', err)
+      } finally {
+        setLoading(false)
+      }
     }
-  ]
+
+    fetchMeetings()
+  }, [])
 
   const filteredMeetings = meetings.filter(meeting => {
-    const matchesSearch = meeting.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         meeting.platform.toLowerCase().includes(searchTerm.toLowerCase())
+    const title = meeting.title || 'Untitled Meeting'
+    const matchesSearch = title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         meeting.meeting_id.toLowerCase().includes(searchTerm.toLowerCase())
     const matchesFilter = filter === 'all' || meeting.status === filter
     return matchesSearch && matchesFilter
   })
@@ -76,8 +73,8 @@ const MeetingHistory: React.FC = () => {
     return `${minutes}m`
   }
 
-  const formatDate = (dateString: string): string => {
-    const date = new Date(dateString)
+  const formatDate = (timestamp: number): string => {
+    const date = new Date(timestamp / 1000000) // Convert nanoseconds to milliseconds
     return date.toLocaleDateString('en-US', {
       month: 'short',
       day: 'numeric',
@@ -87,17 +84,33 @@ const MeetingHistory: React.FC = () => {
     })
   }
 
+  const calculateDuration = (startTime: number, endTime: number | null): number => {
+    if (!endTime) return 0
+    return Math.floor((endTime - startTime) / 1000000000) // Convert nanoseconds to seconds
+  }
+
   const getStatusColor = (status: Meeting['status']) => {
     switch (status) {
-      case 'completed':
+      case 'Ended':
         return 'bg-green-100 text-green-800'
-      case 'recording':
+      case 'Active':
         return 'bg-blue-100 text-blue-800'
-      case 'failed':
+      case 'Failed':
         return 'bg-red-100 text-red-800'
       default:
         return 'bg-gray-100 text-gray-800'
     }
+  }
+
+  const getPlatformFromTitle = (title: string | null): string => {
+    if (!title) return 'Unknown Platform'
+    const titleLower = title.toLowerCase()
+    if (titleLower.includes('meet')) return 'Google Meet'
+    if (titleLower.includes('zoom')) return 'Zoom'
+    if (titleLower.includes('teams')) return 'Microsoft Teams'
+    if (titleLower.includes('webex')) return 'Webex'
+    if (titleLower.includes('discord')) return 'Discord'
+    return 'Unknown Platform'
   }
 
   const getPlatformColor = (platform: string) => {
@@ -108,150 +121,114 @@ const MeetingHistory: React.FC = () => {
         return 'bg-blue-100 text-blue-800'
       case 'Microsoft Teams':
         return 'bg-purple-100 text-purple-800'
+      case 'Webex':
+        return 'bg-orange-100 text-orange-800'
+      case 'Discord':
+        return 'bg-indigo-100 text-indigo-800'
       default:
         return 'bg-gray-100 text-gray-800'
     }
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
-      <div className="container mx-auto px-4 py-8">
-        {/* Header */}
-        <header className="mb-8">
-          <div className="flex items-center gap-4 mb-4">
-            <Link to="/" className="p-2 hover:bg-white rounded-lg transition-colors">
-              <ArrowLeft className="w-5 h-5 text-gray-600" />
-            </Link>
-            <div>
-              <h1 className="text-3xl font-bold text-gray-800">Meeting History</h1>
-              <p className="text-gray-600">Browse and manage your recorded meetings</p>
-            </div>
+    <div className="h-full flex flex-col gradient-bg text-white">
+      {/* Header */}
+      <header className="p-3 border-b border-white/10 flex-shrink-0">
+        <div className="flex items-center gap-3 mb-2">
+          <Link to="/" className="p-1 hover:bg-white/10 rounded transition-colors">
+            <ArrowLeft className="w-4 h-4" />
+          </Link>
+          <h1 className="text-sm font-semibold">Meeting History</h1>
+        </div>
+        
+        {/* Compact Search */}
+        <div className="flex gap-2">
+          <div className="flex-1 relative">
+            <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 w-3 h-3 text-white/50" />
+            <input
+              type="text"
+              placeholder="Search..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full pl-7 pr-2 py-1 text-xs bg-white/10 border border-white/20 rounded text-white placeholder-white/50 focus:outline-none focus:bg-white/20"
+            />
           </div>
+          <select
+            value={filter}
+            onChange={(e) => setFilter(e.target.value as typeof filter)}
+            className="px-2 py-1 text-xs bg-white/10 border border-white/20 rounded text-white focus:outline-none focus:bg-white/20"
+          >
+            <option value="all">All</option>
+            <option value="Ended">Done</option>
+            <option value="Active">Live</option>
+            <option value="Failed">Failed</option>
+          </select>
+        </div>
+      </header>
 
-          {/* Search and Filter */}
-          <div className="flex flex-col sm:flex-row gap-4 bg-white p-4 rounded-xl shadow-sm">
-            <div className="flex-1 relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
-              <input
-                type="text"
-                placeholder="Search meetings..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
-            </div>
-            <div className="flex items-center gap-2">
-              <Filter className="w-4 h-4 text-gray-400" />
-              <select
-                value={filter}
-                onChange={(e) => setFilter(e.target.value as typeof filter)}
-                className="px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              >
-                <option value="all">All Status</option>
-                <option value="completed">Completed</option>
-                <option value="recording">Recording</option>
-                <option value="failed">Failed</option>
-              </select>
-            </div>
+      {/* Meeting List */}
+      <div className="flex-1 overflow-y-auto p-3 space-y-2">
+        {loading ? (
+          <div className="text-center py-8">
+            <Loader className="w-5 h-5 mx-auto mb-2 text-white animate-spin" />
+            <p className="text-xs text-white/70">Loading...</p>
           </div>
-        </header>
-
-        {/* Meeting List */}
-        <div className="space-y-4">
-          {filteredMeetings.length > 0 ? (
-            filteredMeetings.map((meeting) => (
-              <div key={meeting.id} className="card p-6 hover:shadow-lg transition-shadow">
-                <div className="flex items-start justify-between">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-3 mb-2">
-                      <h3 className="text-lg font-semibold text-gray-800">
-                        {meeting.title}
-                      </h3>
-                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(meeting.status)}`}>
-                        {meeting.status}
+        ) : error ? (
+          <div className="text-center py-8">
+            <FileText className="w-8 h-8 mx-auto mb-2 text-white/50" />
+            <p className="text-xs text-white/70">Error loading meetings</p>
+          </div>
+        ) : filteredMeetings.length > 0 ? (
+          filteredMeetings.map((meeting) => {
+            const platform = getPlatformFromTitle(meeting.title)
+            const duration = calculateDuration(meeting.created_at, meeting.ended_at)
+            
+            return (
+              <div key={meeting.meeting_id} className="bg-white/10 rounded-lg p-3 hover:bg-white/20 transition-colors">
+                {/* Title Line */}
+                <h3 className="text-sm font-medium text-white mb-2 truncate">
+                  {meeting.title || 'Untitled Meeting'}
+                </h3>
+                
+                {/* Status and Actions Line */}
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-xs">
+                    <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${getStatusColor(meeting.status)}`}>
+                      {meeting.status}
+                    </span>
+                    <span className="text-white/70">
+                      {formatDate(meeting.created_at)}
+                    </span>
+                    {meeting.ended_at && (
+                      <span className="text-white/70">
+                        {formatDuration(duration)}
                       </span>
-                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${getPlatformColor(meeting.platform)}`}>
-                        {meeting.platform}
-                      </span>
-                    </div>
-
-                    <div className="flex items-center gap-4 text-sm text-gray-600 mb-3">
-                      <div className="flex items-center gap-1">
-                        <Calendar className="w-4 h-4" />
-                        <span>{formatDate(meeting.date)}</span>
-                      </div>
-                      <div className="flex items-center gap-1">
-                        <Clock className="w-4 h-4" />
-                        <span>{formatDuration(meeting.duration)}</span>
-                      </div>
-                      <div className="flex items-center gap-1">
-                        <FileText className="w-4 h-4" />
-                        <span>{meeting.transcriptSegments} segments</span>
-                      </div>
-                    </div>
-
-                    {meeting.summary && (
-                      <p className="text-gray-700 text-sm mb-3 line-clamp-2">
-                        {meeting.summary}
-                      </p>
                     )}
                   </div>
-
-                  <div className="flex items-center gap-2 ml-4">
-                    <button className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors">
-                      <Download className="w-4 h-4" />
+                  
+                  <div className="flex items-center gap-1">
+                    <button 
+                      className={`p-1 rounded transition-colors ${
+                        meeting.has_summary 
+                          ? 'text-white/70 hover:text-white hover:bg-white/10' 
+                          : 'text-white/30 opacity-50 cursor-not-allowed'
+                      }`}
+                      disabled={!meeting.has_summary}
+                    >
+                      <Download className="w-3 h-3" />
                     </button>
-                    <button className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors">
-                      <ExternalLink className="w-4 h-4" />
+                    <button className="p-1 text-white/70 hover:text-white hover:bg-white/10 rounded transition-colors">
+                      <ExternalLink className="w-3 h-3" />
                     </button>
                   </div>
                 </div>
               </div>
-            ))
-          ) : (
-            <div className="text-center py-12">
-              <FileText className="w-16 h-16 mx-auto mb-4 text-gray-300" />
-              <h3 className="text-lg font-medium text-gray-700 mb-2">
-                No meetings found
-              </h3>
-              <p className="text-gray-500">
-                {searchTerm || filter !== 'all' 
-                  ? 'Try adjusting your search or filter criteria'
-                  : 'Start recording meetings to see them here'
-                }
-              </p>
-            </div>
-          )}
-        </div>
-
-        {/* Summary Stats */}
-        {filteredMeetings.length > 0 && (
-          <div className="mt-8 bg-white p-6 rounded-xl shadow-sm">
-            <h3 className="text-sm font-medium text-gray-700 mb-3">Summary</h3>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <div className="text-center">
-                <div className="text-2xl font-bold text-blue-600">{filteredMeetings.length}</div>
-                <div className="text-sm text-gray-600">Total Meetings</div>
-              </div>
-              <div className="text-center">
-                <div className="text-2xl font-bold text-green-600">
-                  {filteredMeetings.reduce((acc, m) => acc + m.duration, 0) / 3600 | 0}h
-                </div>
-                <div className="text-sm text-gray-600">Total Duration</div>
-              </div>
-              <div className="text-center">
-                <div className="text-2xl font-bold text-purple-600">
-                  {filteredMeetings.reduce((acc, m) => acc + m.transcriptSegments, 0)}
-                </div>
-                <div className="text-sm text-gray-600">Total Segments</div>
-              </div>
-              <div className="text-center">
-                <div className="text-2xl font-bold text-orange-600">
-                  {filteredMeetings.filter(m => m.summary).length}
-                </div>
-                <div className="text-sm text-gray-600">With Summaries</div>
-              </div>
-            </div>
+            )
+          })
+        ) : (
+          <div className="text-center py-8">
+            <FileText className="w-8 h-8 mx-auto mb-2 text-white/50" />
+            <p className="text-xs text-white/70">No meetings found</p>
           </div>
         )}
       </div>

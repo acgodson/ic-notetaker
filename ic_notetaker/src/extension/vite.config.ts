@@ -113,7 +113,6 @@ export default defineConfig(({ mode }) => {
         input: {
           popup: path.resolve(__dirname, 'index.html'),
           background: path.resolve(__dirname, 'src/background/background.ts'),
-          'auth-callback': path.resolve(__dirname, 'src/auth-callback.html'),
         },
         output: {
           entryFileNames: (chunk) => {

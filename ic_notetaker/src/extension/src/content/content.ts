@@ -30,6 +30,8 @@ class MeetingCapture {
           return this.stopRecording()
         case 'GET_STATUS':
           return Promise.resolve(this.getStatus())
+        case 'GET_MEETING_STATUS':
+          return Promise.resolve(this.getMeetingStatus())
       }
     })
 
@@ -88,10 +90,7 @@ class MeetingCapture {
   }
 
   private async showConsentOverlay() {
-    // Check authentication status first
-    const authStatus = await this.checkAuthenticationStatus()
-    
-    // Create floating consent overlay
+    // Create floating consent overlay - anonymous recording only
     this.overlay = document.createElement('div')
     this.overlay.id = 'ic-notetaker-overlay'
     this.overlay.innerHTML = `
@@ -103,18 +102,12 @@ class MeetingCapture {
         <div class="ic-overlay-body">
           <p>Record and transcribe this meeting on the Internet Computer?</p>
           <div class="ic-overlay-actions" id="ic-overlay-actions">
-            ${authStatus.isAuthenticated ? `
-              <button class="ic-btn ic-btn-primary" id="ic-start-recording">
-                Start Recording
-              </button>
-              <button class="ic-btn ic-btn-secondary" id="ic-dismiss">
-                Not Now
-              </button>
-            ` : `
-              <button class="ic-btn ic-btn-primary ic-btn-full-width" id="ic-login">
-                Login with Internet Identity
-              </button>
-            `}
+            <button class="ic-btn ic-btn-primary" id="ic-start-recording">
+              Start Recording
+            </button>
+            <button class="ic-btn ic-btn-secondary" id="ic-dismiss">
+              Not Now
+            </button>
           </div>
         </div>
       </div>
@@ -231,11 +224,7 @@ class MeetingCapture {
     // Add event listeners
     this.overlay.querySelector('#ic-start-recording')?.addEventListener('click', () => {
       this.startRecording()
-      this.hideOverlay()
-    })
-
-    this.overlay.querySelector('#ic-login')?.addEventListener('click', async () => {
-      await this.handleLogin()
+      this.showRecordingStatus()
     })
 
     this.overlay.querySelector('#ic-dismiss')?.addEventListener('click', () => {
@@ -254,164 +243,108 @@ class MeetingCapture {
     }
   }
 
-  private async checkAuthenticationStatus(): Promise<{ isAuthenticated: boolean; principalText?: string }> {
-    try {
-      console.log('🔍 Content Script: Checking authentication status...')
-      
-      // Check if extension context is valid before sending message
-      if (!browser.runtime?.id) {
-        console.warn('⚠️ Content Script: Extension context invalidated, cannot check auth')
-        return { isAuthenticated: false }
-      }
-      
-      // Send message to background script to check auth with retry
-      const response = await this.sendMessageWithRetry({ 
-        action: 'CHECK_AUTH_STATUS' 
-      }) as { isAuthenticated?: boolean; principalText?: string } | undefined
-      
-      console.log('🔍 Content Script: Auth status response:', response)
-      
-      return {
-        isAuthenticated: response?.isAuthenticated || false,
-        principalText: response?.principalText
-      }
-    } catch (error) {
-      console.error('❌ Content Script: Failed to check auth status:', error)
-      return { isAuthenticated: false }
-    }
-  }
-
-  private async handleLogin(): Promise<void> {
-    try {
-      console.log('🔍 Content Script: Initiating login...')
-      
-      // Send message to background script to open Internet Identity in new tab
-      const response = await this.sendMessageWithRetry({ 
-        action: 'OPEN_AUTH_TAB' 
-      }) as { success?: boolean; error?: string; tabId?: number } | undefined
-      
-      if (response?.success) {
-        console.log('✅ Content Script: Auth tab opened:', response.tabId)
-        
-        // Hide the overlay and show a waiting message
-        this.showAuthWaitingMessage()
-        
-        // Start polling for auth status
-        this.startAuthPolling()
-      } else {
-        console.error('❌ Content Script: Failed to open auth tab:', response?.error)
-      }
-      
-    } catch (error) {
-      console.error('❌ Content Script: Login process failed:', error)
-    }
-  }
-
-  private showAuthWaitingMessage(): void {
+  private showRecordingStatus() {
     if (this.overlay) {
       const actionsContainer = this.overlay.querySelector('#ic-overlay-actions')
       if (actionsContainer) {
         actionsContainer.innerHTML = `
-          <div class="ic-auth-waiting">
-            <p style="font-size: 12px; margin-bottom: 12px; line-height: 1.4;">
-              <strong>Instructions:</strong><br>
-              1. Create or sign in with your Internet Identity<br>
-              2. Return to this tab - we'll detect your authentication automatically
+          <div class="ic-recording-status">
+            <div class="ic-recording-indicator">
+              <div class="ic-recording-dot"></div>
+              <span id="ic-recording-timer">00:00</span>
+            </div>
+            <p style="font-size: 12px; margin: 12px 0; line-height: 1.4;">
+              Recording in progress...<br>
+              Audio is being captured and sent to IC canister.
             </p>
-            <button class="ic-btn ic-btn-secondary" id="ic-cancel-auth">
-              Cancel
+            <button class="ic-btn ic-btn-secondary" id="ic-stop-recording">
+              Stop Recording
             </button>
           </div>
         `
         
-        // Add cancel handler
-        actionsContainer.querySelector('#ic-cancel-auth')?.addEventListener('click', () => {
-          this.stopAuthPolling()
+        // Add stop recording handler
+        actionsContainer.querySelector('#ic-stop-recording')?.addEventListener('click', () => {
+          this.stopRecording()
           this.hideOverlay()
         })
-      }
-    }
-  }
 
-  private authPollingInterval: ReturnType<typeof setInterval> | null = null
-
-  private startAuthPolling(): void {
-    console.log('🔄 Content Script: Starting auth polling...')
-    
-    this.authPollingInterval = setInterval(async () => {
-      try {
-        const authStatus = await this.checkAuthenticationStatus()
-        console.log('🔄 Content Script: Polling auth status:', authStatus.isAuthenticated)
+        // Start recording timer
+        this.startRecordingTimer()
         
-        if (authStatus.isAuthenticated) {
-          console.log('✅ Content Script: Authentication successful!')
-          this.stopAuthPolling()
-          await this.updateOverlayAfterLogin()
-        }
-      } catch (error) {
-        console.warn('⚠️ Content Script: Auth polling error:', error)
+        // Add recording indicator styles
+        this.addRecordingStyles()
       }
-    }, 2000) // Check every 2 seconds
-    
-    // Stop polling after 5 minutes
-    setTimeout(() => {
-      if (this.authPollingInterval) {
-        console.log('⏱️ Content Script: Auth polling timeout')
-        this.stopAuthPolling()
-      }
-    }, 300000)
-  }
-
-  private stopAuthPolling(): void {
-    if (this.authPollingInterval) {
-      clearInterval(this.authPollingInterval)
-      this.authPollingInterval = null
-      console.log('🛑 Content Script: Auth polling stopped')
     }
   }
 
-  private showAuthRedirectMessage(): void {
-    // Create a temporary message overlay
-    const messageOverlay = document.createElement('div')
-    messageOverlay.id = 'ic-auth-redirect-message'
-    messageOverlay.innerHTML = `
-      <div class="ic-overlay-content">
-        <div class="ic-overlay-header">
-          <h3>🎙️ IC Notetaker</h3>
-          <button class="ic-close-btn" id="ic-close-message">&times;</button>
-        </div>
-        <div class="ic-overlay-body">
-          <p>Please use the extension popup (click the IC Notetaker icon in your browser toolbar) to authenticate with Internet Identity.</p>
-          <div class="ic-overlay-actions">
-            <button class="ic-btn ic-btn-secondary" id="ic-got-it">
-              Got it
-            </button>
-          </div>
-        </div>
-      </div>
-    `
+  private recordingStartTime: number = 0
+  private recordingTimerInterval: number | null = null
+
+  private startRecordingTimer() {
+    this.recordingStartTime = Date.now()
     
-    // Use the same styles as the main overlay
-    messageOverlay.style.cssText = this.overlay?.style.cssText || ''
-    
-    document.body.appendChild(messageOverlay)
-    
-    // Add event listeners
-    messageOverlay.querySelector('#ic-close-message')?.addEventListener('click', () => {
-      messageOverlay.remove()
-    })
-    
-    messageOverlay.querySelector('#ic-got-it')?.addEventListener('click', () => {
-      messageOverlay.remove()
-    })
-    
-    // Auto-remove after 10 seconds
-    setTimeout(() => {
-      if (messageOverlay.parentNode) {
-        messageOverlay.remove()
+    this.recordingTimerInterval = window.setInterval(() => {
+      const elapsed = Math.floor((Date.now() - this.recordingStartTime) / 1000)
+      const minutes = Math.floor(elapsed / 60)
+      const seconds = elapsed % 60
+      const timerText = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`
+      
+      const timerElement = document.getElementById('ic-recording-timer')
+      if (timerElement) {
+        timerElement.textContent = timerText
       }
-    }, 10000)
+    }, 1000)
   }
+
+  private stopRecordingTimer() {
+    if (this.recordingTimerInterval) {
+      clearInterval(this.recordingTimerInterval)
+      this.recordingTimerInterval = null
+    }
+  }
+
+  private addRecordingStyles() {
+    const existingStyle = document.getElementById('ic-recording-styles')
+    if (!existingStyle) {
+      const style = document.createElement('style')
+      style.id = 'ic-recording-styles'
+      style.textContent = `
+        .ic-recording-indicator {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 8px;
+          margin-bottom: 8px;
+        }
+        
+        .ic-recording-dot {
+          width: 12px;
+          height: 12px;
+          background: #ff4444;
+          border-radius: 50%;
+          animation: pulse 1.5s ease-in-out infinite;
+        }
+        
+        @keyframes pulse {
+          0% { opacity: 1; transform: scale(1); }
+          50% { opacity: 0.7; transform: scale(1.1); }
+          100% { opacity: 1; transform: scale(1); }
+        }
+        
+        #ic-recording-timer {
+          font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+          font-size: 16px;
+          font-weight: bold;
+          color: #ff4444;
+          text-shadow: 0 0 4px rgba(255, 68, 68, 0.3);
+        }
+      `
+      document.head.appendChild(style)
+    }
+  }
+
+
 
   private async sendMessageWithRetry(message: any, maxRetries: number = 3): Promise<any> {
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
@@ -440,29 +373,6 @@ class MeetingCapture {
     }
   }
 
-  private async updateOverlayAfterLogin(): Promise<void> {
-    const actionsContainer = this.overlay?.querySelector('#ic-overlay-actions')
-    if (actionsContainer) {
-      actionsContainer.innerHTML = `
-        <button class="ic-btn ic-btn-primary" id="ic-start-recording">
-          Start Recording
-        </button>
-        <button class="ic-btn ic-btn-secondary" id="ic-dismiss">
-          Not Now
-        </button>
-      `
-      
-      // Re-attach event listeners
-      actionsContainer.querySelector('#ic-start-recording')?.addEventListener('click', () => {
-        this.startRecording()
-        this.hideOverlay()
-      })
-      
-      actionsContainer.querySelector('#ic-dismiss')?.addEventListener('click', () => {
-        this.hideOverlay()
-      })
-    }
-  }
 
   private async startRecording(): Promise<void> {
     try {
@@ -513,6 +423,9 @@ class MeetingCapture {
         if (this.uploadInterval) {
           clearInterval(this.uploadInterval)
         }
+
+        // Stop recording timer
+        this.stopRecordingTimer()
 
         // Upload final audio chunk
         await this.uploadAudioChunk()
@@ -631,6 +544,26 @@ class MeetingCapture {
       isRecording: this.state.isRecording,
       meetingId: this.state.meetingId,
       platform: this.getPlatform()
+    }
+  }
+
+  private getMeetingStatus() {
+    const url = window.location.href
+    const platform = this.getPlatform()
+    
+    // Check if we're in a meeting platform
+    const isMeetingPlatform = url.includes('meet.google.com') || 
+                             url.includes('zoom.us') || 
+                             url.includes('teams.microsoft.com') ||
+                             url.includes('webex.com') ||
+                             url.includes('discord.com')
+    
+    return {
+      isMeetingDetected: isMeetingPlatform,
+      isRecording: this.state.isRecording,
+      meetingId: this.state.meetingId,
+      platform: platform,
+      recordingDuration: this.state.isRecording ? Math.floor((Date.now() - this.recordingStartTime) / 1000) : 0
     }
   }
 }

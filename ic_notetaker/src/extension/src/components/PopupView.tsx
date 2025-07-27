@@ -1,97 +1,80 @@
-import React from 'react'
-import { useAuthStore } from '../stores/authStore'
-import { useMeetingStore } from '../stores/meetingStore'
+import React, { useState, useEffect } from 'react'
+import { Link } from 'react-router-dom'
 import { 
   Mic, 
-  MicOff, 
   Square, 
   Settings, 
   History, 
   HelpCircle,
-  Wifi,
-  WifiOff,
-  Loader,
   Video,
   Phone,
   Users,
   MessageSquare,
-  Globe,
-  LogIn,
-  User,
-  AlertCircle
+  Globe
 } from 'lucide-react'
 
+interface MeetingStatus {
+  isMeetingDetected: boolean
+  isRecording: boolean
+  meetingId?: string
+  platform: string
+  recordingDuration: number
+}
+
 const PopupView: React.FC = () => {
-  // Zustand stores
-  const { 
-    isAuthenticated, 
-    login, 
-    logout, 
-    principalText, 
-    isLoading: authLoading, 
-    icNotetakerActor,
-    error: authError,
-    init: initAuth,
-    clearError: clearAuthError
-  } = useAuthStore()
+  const [meetingStatus, setMeetingStatus] = useState<MeetingStatus>({
+    isMeetingDetected: false,
+    isRecording: false,
+    platform: 'Unknown',
+    recordingDuration: 0
+  })
+  const [loading, setLoading] = useState(true)
 
-  const {
-    isRecording,
-    meetingId,
-    platform,
-    duration,
-    connectionStatus,
-    error: meetingError,
-    checkConnection,
-    createMeeting,
-    stopRecording,
-    clearError: clearMeetingError,
-    setPlatform,
-    detectPlatform
-  } = useMeetingStore()
-
-  // Initialize auth and detect platform on mount
-  React.useEffect(() => {
-    console.log('🔍 PopupView: Initializing...')
-    initAuth()
-    
-    const detectedPlatform = detectPlatform()
-    if (detectedPlatform) {
-      setPlatform(detectedPlatform)
+  // Get meeting status from content script
+  const getMeetingStatus = async () => {
+    try {
+      const tabs = await chrome.tabs.query({ active: true, currentWindow: true })
+      if (tabs[0]?.id) {
+        const response = await chrome.tabs.sendMessage(tabs[0].id, { action: 'GET_MEETING_STATUS' })
+        if (response) {
+          setMeetingStatus(response)
+        }
+      }
+    } catch (error) {
+      console.log('No meeting content script found')
+    } finally {
+      setLoading(false)
     }
-    
-    checkConnection()
-  }, [initAuth, detectPlatform, setPlatform, checkConnection])
+  }
 
-  // Debug state
-  React.useEffect(() => {
-    console.log('🔍 PopupView: State update:', { 
-      isAuthenticated, 
-      principalText, 
-      authLoading,
-      hasActor: !!icNotetakerActor,
-      platform,
-      connectionStatus,
-      authError,
-      meetingError
-    })
-  }, [isAuthenticated, principalText, authLoading, icNotetakerActor, platform, connectionStatus, authError, meetingError])
+  // Initialize and refresh status
+  useEffect(() => {
+    getMeetingStatus()
+    const interval = setInterval(getMeetingStatus, 2000) // Update every 2 seconds
+    return () => clearInterval(interval)
+  }, [])
 
   const handleStartRecording = async () => {
     try {
-      clearMeetingError()
-      await createMeeting()
+      const tabs = await chrome.tabs.query({ active: true, currentWindow: true })
+      if (tabs[0]?.id) {
+        await chrome.tabs.sendMessage(tabs[0].id, { action: 'START_RECORDING' })
+        getMeetingStatus() // Refresh status
+      }
     } catch (error) {
       console.error('Failed to start recording:', error)
     }
   }
 
-  const handleLogin = async () => {
+  const handleStopRecording = async () => {
     try {
-      clearAuthError()
-      await login()
+      const tabs = await chrome.tabs.query({ active: true, currentWindow: true })
+      if (tabs[0]?.id) {
+        await chrome.tabs.sendMessage(tabs[0].id, { action: 'STOP_RECORDING' })
+        getMeetingStatus() // Refresh status
+      }
     } catch (error) {
-      console.error('Login failed:', error)
+      console.error('Failed to stop recording:', error)
     }
   }
 
@@ -165,91 +148,48 @@ const PopupView: React.FC = () => {
     { name: 'Discord', icon: <MessageSquare className="w-4 h-4" />, color: 'text-indigo-400' }
   ]
 
+  if (loading) {
+    return (
+      <div className="h-full flex flex-col gradient-bg text-white">
+        <div className="flex-1 flex items-center justify-center">
+          <div className="text-center">
+            <div className="text-2xl mb-2">🎙️</div>
+            <p className="text-sm opacity-75">Loading...</p>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="h-full flex flex-col gradient-bg text-white">
       {/* Header */}
       <header className="p-4 border-b border-white/10">
         <div className="flex items-center justify-between mb-3">
           <h1 className="text-lg font-semibold">🎙️ IC Notetaker</h1>
-          {isAuthenticated ? (
-            <button 
-              onClick={logout}
-              className="flex items-center gap-1 text-xs opacity-75 hover:opacity-100 transition-opacity"
-            >
-              <User className="w-3 h-3" />
-              Logout
-            </button>
-          ) : (
-            <button 
-              onClick={checkConnection}
-              className="text-xs opacity-75 hover:opacity-100 transition-opacity"
-            >
-              Refresh
-            </button>
-          )}
+          <div className="text-xs opacity-75">Anonymous</div>
         </div>
-        
-        <div className="flex items-center justify-between text-xs">
-          <div className="flex items-center gap-2">
-            {getConnectionIcon()}
-            <span className="opacity-90">{getConnectionText()}</span>
-          </div>
-          {isAuthenticated && principalText && (
-            <div className="text-xs opacity-75">
-              {principalText.slice(0, 8)}...
-            </div>
-          )}
-        </div>
-
-        {/* Error Messages */}
-        {(authError || meetingError) && (
-          <div className="mt-2 p-2 bg-red-500/20 border border-red-400/50 rounded text-xs flex items-center gap-2">
-            <AlertCircle className="w-3 h-3" />
-            <span>{authError || meetingError}</span>
-          </div>
-        )}
       </header>
 
       {/* Main Content */}
       <main className="flex-1 p-4 flex flex-col justify-center">
-        {platform ? (
+        {meetingStatus.isMeetingDetected ? (
           <div className="space-y-6">
             {/* Platform Info */}
             <div className="text-center">
-              <div className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium mb-2 ${getPlatformColor(platform)}`}>
-                {getPlatformIcon(platform)}
-                {platform}
+              <div className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium mb-2 ${getPlatformColor(meetingStatus.platform)}`}>
+                {getPlatformIcon(meetingStatus.platform)}
+                {meetingStatus.platform}
               </div>
               <p className="text-sm opacity-80">Meeting detected</p>
             </div>
 
             {/* Recording Controls */}
             <div className="text-center space-y-4">
-              {!isAuthenticated ? (
-                <div className="space-y-3">
-                  <p className="text-sm opacity-80">Sign in to start recording</p>
-                  <button
-                    onClick={handleLogin}
-                    disabled={authLoading}
-                    className="inline-flex items-center gap-2 bg-blue-500/30 hover:bg-blue-500/50 
-                             disabled:opacity-50 disabled:cursor-not-allowed
-                             border border-blue-400/50 text-white px-6 py-3 rounded-full 
-                             font-medium transition-all duration-200 hover:scale-105"
-                  >
-                    {authLoading ? (
-                      <Loader className="w-4 h-4 animate-spin" />
-                    ) : (
-                      <LogIn className="w-4 h-4" />
-                    )}
-                    {authLoading ? 'Connecting...' : 'Login with Internet Identity'}
-                  </button>
-                </div>
-              ) : !isRecording ? (
+              {!meetingStatus.isRecording ? (
                 <button
                   onClick={handleStartRecording}
-                  disabled={connectionStatus !== 'connected' || !isAuthenticated || !icNotetakerActor}
                   className="inline-flex items-center gap-2 bg-white/10 hover:bg-white/20 
-                           disabled:opacity-50 disabled:cursor-not-allowed
                            border border-white/30 text-white px-6 py-3 rounded-full 
                            font-medium transition-all duration-200 hover:scale-105"
                 >
@@ -259,7 +199,7 @@ const PopupView: React.FC = () => {
               ) : (
                 <div className="space-y-3">
                   <button
-                    onClick={stopRecording}
+                    onClick={handleStopRecording}
                     className="inline-flex items-center gap-2 bg-red-500/30 hover:bg-red-500/50 
                              border border-red-400/50 text-white px-6 py-3 rounded-full 
                              font-medium transition-all duration-200 hover:scale-105"
@@ -270,20 +210,17 @@ const PopupView: React.FC = () => {
                   
                   <div className="flex items-center justify-center gap-2 text-sm">
                     <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
-                    <span>Recording: {formatDuration(duration)}</span>
+                    <span>Recording: {formatDuration(meetingStatus.recordingDuration)}</span>
                   </div>
                 </div>
               )}
             </div>
 
             {/* Meeting Info */}
-            {meetingId && (
+            {meetingStatus.meetingId && (
               <div className="bg-white/10 rounded-lg p-3 text-center">
                 <p className="text-xs opacity-75 mb-1">Meeting ID</p>
-                <p className="text-sm font-mono">{meetingId.slice(-8)}</p>
-                <button className="mt-2 text-xs underline opacity-75 hover:opacity-100">
-                  View Transcript
-                </button>
+                <p className="text-sm font-mono">{meetingStatus.meetingId.slice(-8)}</p>
               </div>
             )}
           </div>
@@ -308,14 +245,14 @@ const PopupView: React.FC = () => {
       {/* Footer */}
       <footer className="p-3 border-t border-white/10">
         <div className="flex justify-around">
-          <button className="flex flex-col items-center gap-1 p-2 rounded-lg hover:bg-white/10 transition-colors">
+          <Link to="/settings" className="flex flex-col items-center gap-1 p-2 rounded-lg hover:bg-white/10 transition-colors">
             <Settings className="w-4 h-4" />
             <span className="text-xs">Settings</span>
-          </button>
-          <button className="flex flex-col items-center gap-1 p-2 rounded-lg hover:bg-white/10 transition-colors">
+          </Link>
+          <Link to="/history" className="flex flex-col items-center gap-1 p-2 rounded-lg hover:bg-white/10 transition-colors">
             <History className="w-4 h-4" />
             <span className="text-xs">History</span>
-          </button>
+          </Link>
           <button className="flex flex-col items-center gap-1 p-2 rounded-lg hover:bg-white/10 transition-colors">
             <HelpCircle className="w-4 h-4" />
             <span className="text-xs">Help</span>

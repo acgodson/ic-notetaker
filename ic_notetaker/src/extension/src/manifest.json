@@ -38,14 +38,6 @@
       ],
       "js": ["content.js"],
       "run_at": "document_start"
-    },
-    {
-      "matches": [
-        "https://identity.ic0.app/*",
-        "http://*.localhost:4943/*"
-      ],
-      "js": ["auth-injector.js"],
-      "run_at": "document_end"
     }
   ],
   "action": {
